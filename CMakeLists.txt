@@ -8,7 +8,14 @@ project(wl-remote
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
-add_compile_options(-Wall -Wextra -Wno-unused-parameter)
+include(FetchContent)
+set(make_tests OFF CACHE BOOL "Disable tinydtls tests" FORCE)
+FetchContent_Declare(
+        tinydtls
+        GIT_REPOSITORY https://github.com/eclipse-tinydtls/tinydtls.git
+        GIT_TAG main
+)
+FetchContent_MakeAvailable(tinydtls)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(WAYLAND_CLIENT REQUIRED IMPORTED_TARGET wayland-client)
@@ -30,11 +37,11 @@ add_custom_command(
         VERBATIM
 )
 
-
+add_compile_options(-Wall -Wextra -Wno-unused-parameter)
 add_executable(wl-remote
         src/main.c
         ${PROTOCOL_H}
         ${PROTOCOL_C}
 )
 target_include_directories(wl-remote PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
-target_link_libraries(wl-remote PRIVATE PkgConfig::WAYLAND_CLIENT)
+target_link_libraries(wl-remote PRIVATE PkgConfig::WAYLAND_CLIENT tinydtls)
