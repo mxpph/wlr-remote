@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.10)
 
-project(wl-remote
+project(wlr-remote
         VERSION 0.1.0
         LANGUAGES C
 )
@@ -11,7 +11,6 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 include(FetchContent)
 set(make_tests OFF CACHE BOOL "Disable tinydtls tests" FORCE)
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "Disable tinydtls shared libraries" FORCE)
-# TODO support for ECDHE_ECDSA cipher suites?
 set(DTLS_ECC OFF CACHE BOOL "Disable tinydtls ECDHE_ECDSA cipher suites support" FORCE)
 set(DTLS_PSK ON CACHE BOOL "Enable tinydtls PSK support" FORCE)
 FetchContent_Declare(
@@ -42,13 +41,13 @@ add_custom_command(
 )
 
 add_compile_options(-Wall -Wextra -Wno-unused-parameter)
-add_executable(wl-remote
+add_executable(wlr-remote
         src/main.c
         ${PROTOCOL_H}
         ${PROTOCOL_C}
 )
-target_include_directories(wl-remote PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
-target_link_libraries(wl-remote PRIVATE PkgConfig::WAYLAND_CLIENT tinydtls)
+target_include_directories(wlr-remote PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+target_link_libraries(wlr-remote PRIVATE PkgConfig::WAYLAND_CLIENT tinydtls)
 
 add_executable(test-client
         src/test-client.c
