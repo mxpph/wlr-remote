@@ -1,3 +1,4 @@
+#include <dtls.h>
 #include <errno.h>
 #include <linux/input-event-codes.h>
 #include <netinet/in.h>
@@ -17,12 +18,18 @@
 #define WL_POINTER_DEFAULT_PORT 39076
 #endif
 
+#define DGRAM_BUF_SIZE 1500
+
+static const unsigned char PSK_ID[] = "user";
+static const unsigned char PSK_KEY[] = "pass"; // TODO user input
+
 static volatile int quit = 0;
 
 struct client_state {
   struct wl_seat *seat;
   struct zwlr_virtual_pointer_manager_v1 *pointer_manager;
   struct zwlr_virtual_pointer_v1 *virtual_pointer;
+  int net_fd;
 };
 
 struct mouse_packet {
@@ -100,6 +107,7 @@ static void handle_packet(const struct client_state *state,
   case BTN_EXTRA:
     zwlr_virtual_pointer_v1_button(state->virtual_pointer, 0, packet->button,
                                    packet->button_state);
+    break;
   case 0:
     break;
   default:
@@ -113,22 +121,118 @@ static void handle_packet(const struct client_state *state,
   zwlr_virtual_pointer_v1_frame(state->virtual_pointer);
 }
 
-static bool net_receive_packet(const struct client_state *state,
-                               const int net_fd) {
-  struct mouse_packet packet;
-  const ssize_t bytes_read = recv(net_fd, &packet, sizeof(packet), 0);
-  if (bytes_read < 0) {
-    perror("recv");
-    return false;
+static int net_handle_epoll(dtls_context_t *ctx, const int net_fd) {
+  static unsigned char buffer[DTLS_MAX_BUF];
+  session_t session;
+  while (true) {
+    memset(&session, 0, sizeof(session));
+    session.size = sizeof(session.addr);
+    const ssize_t bytes_read =
+        recvfrom(net_fd, buffer, sizeof(buffer), MSG_DONTWAIT | MSG_TRUNC,
+                 &session.addr.sa, &session.size);
+    if (bytes_read < 0) {
+      if (errno == EAGAIN || errno == EWOULDBLOCK) {
+        return 0; // handled everything
+      }
+      perror("recvfrom");
+      return -1;
+    }
+    if (bytes_read > DTLS_MAX_BUF) {
+      fprintf(stderr, "warn: Packet of size %zd exceeds buffer\n", bytes_read);
+    }
+    const int res = dtls_handle_message(ctx, &session, buffer, (int)bytes_read);
+    if (res < 0) {
+      return res;
+    }
   }
-  if (bytes_read == sizeof(packet)) {
+}
+
+static int net_handle_send(dtls_context_t *ctx, session_t *session,
+                           unsigned char *buf, size_t len) {
+  const struct client_state *state = dtls_get_app_data(ctx);
+  const ssize_t sent = sendto(state->net_fd, buf, len, MSG_DONTWAIT,
+                              &session->addr.sa, session->size);
+  if (sent < 0) {
+    if (errno == EAGAIN || errno == EWOULDBLOCK || errno == ENOBUFS) {
+      return (int)len; // pretend we succeeded, retransmission should occur
+    }
+    perror("sendto");
+    return -1;
+  }
+  return (int)sent;
+}
+
+static int net_handle_receive(dtls_context_t *ctx, session_t *session,
+                              unsigned char *data, size_t len) {
+  if (len == sizeof(struct mouse_packet)) {
+    struct mouse_packet packet;
+    memcpy(&packet, data, sizeof(packet));
+    packet.dx = (int32_t)ntohl((uint32_t)packet.dx);
+    packet.dy = (int32_t)ntohl((uint32_t)packet.dy);
+    packet.button = ntohs(packet.button);
+    packet.button_state = ntohs(packet.button_state);
+    const struct client_state *state =
+        (struct client_state *)dtls_get_app_data(ctx);
     handle_packet(state, &packet);
   } else {
-    fprintf(stderr, "warn: Received packet of unexpected size %zd\n",
-            bytes_read);
+    fprintf(stderr, "warn: Received packet of unexpected size %zu\n", len);
   }
-  return true;
+  return 0;
 }
+
+static int net_handle_event(dtls_context_t *ctx, session_t *session,
+                            dtls_alert_level_t level, unsigned short code) {
+  char client_addr[INET_ADDRSTRLEN];
+  if (!inet_ntop(session->addr.sa.sa_family, &session->addr.sin.sin_addr,
+                 client_addr, sizeof(client_addr))) {
+    fprintf(stderr, "warn: Failed to convert client address to string\n");
+    perror("inet_ntop");
+  }
+  if (level > 0) {
+    if (code == DTLS_ALERT_CLOSE_NOTIFY) {
+      printf("Connection closed by client %s\n", client_addr);
+    } else {
+      fprintf(stderr,
+              "warn: Received alert with level %u and code %u from client %s\n",
+              level, code, client_addr);
+    }
+    return 0;
+  }
+  switch (code) {
+  case DTLS_EVENT_CONNECT:
+    printf("Handshake initiated with client %s\n", client_addr);
+    break;
+  case DTLS_EVENT_CONNECTED:
+    printf("Handshake completed with client %s\n", client_addr);
+    break;
+  default:
+    break;
+  }
+  return 0;
+}
+
+static int net_get_psk_info(dtls_context_t *ctx, const session_t *session,
+                            dtls_credentials_type_t type,
+                            const unsigned char *id, size_t id_len,
+                            unsigned char *result, size_t result_length) {
+  if (type != DTLS_PSK_KEY) {
+    return 0;
+  }
+
+  if (id_len == sizeof(PSK_ID) - 1 && memcmp(id, PSK_ID, id_len) == 0) {
+    if (result_length < sizeof(PSK_KEY) - 1) {
+      return dtls_alert_fatal_create(DTLS_ALERT_INTERNAL_ERROR);
+    }
+    memcpy(result, PSK_KEY, sizeof(PSK_KEY) - 1);
+    return sizeof(PSK_KEY) - 1;
+  }
+  return dtls_alert_fatal_create(DTLS_ALERT_DECRYPT_ERROR);
+}
+
+static dtls_handler_t dtls_callbacks = {.write = &net_handle_send,
+                                        .read = &net_handle_receive,
+                                        .event = &net_handle_event,
+                                        .get_psk_info = &net_get_psk_info};
 
 static void registry_handle_global(void *data, struct wl_registry *registry,
                                    uint32_t name, const char *interface,
@@ -184,12 +288,17 @@ int main(const int argc, const char **argv) {
           state.pointer_manager, state.seat);
 
   int wl_fd, net_fd, epoll_fd;
-  if ((wl_fd = wl_display_get_fd(display)) < 0
-    || (net_fd = net_setup_udp_socket(port)) < 0
-    || (epoll_fd = net_setup_epoll(wl_fd, net_fd)) < 0) {
+  if ((wl_fd = wl_display_get_fd(display)) < 0 ||
+      (net_fd = net_setup_udp_socket(port)) < 0 ||
+      (epoll_fd = net_setup_epoll(wl_fd, net_fd)) < 0) {
     failure = true;
-    goto err_free_all;
+    goto err_free_virtual_pointer;
   }
+  state.net_fd = net_fd;
+
+  dtls_init();
+  dtls_context_t *dtls_context = dtls_new_context(&state);
+  dtls_set_handler(dtls_context, &dtls_callbacks);
 
   printf("Listening for mouse movements on UDP port %hu...\n", port);
   struct epoll_event events[2];
@@ -198,23 +307,26 @@ int main(const int argc, const char **argv) {
     wl_display_flush(display);
     const int ready = epoll_wait(epoll_fd, events, 2, -1);
     if (ready < 0) {
-      if (!quit) {
-        perror("epoll_wait");
+      if (errno == EINTR) {
+        continue;
       }
-      break;
+      perror("epoll_wait");
+      goto err_free_all;
     }
     for (int i = 0; i < ready; ++i) {
       const int event_fd = events[i].data.fd;
       if ((event_fd == wl_fd && wl_display_dispatch(display) < 0) ||
-          (event_fd == net_fd && !net_receive_packet(&state, net_fd))) {
-        break;
+          (event_fd == net_fd && net_handle_epoll(dtls_context, net_fd) < 0)) {
+        goto err_free_all;
       }
     }
   }
   // Cleanup
+err_free_all:
   close(net_fd);
   close(epoll_fd);
-err_free_all:
+  dtls_free_context(dtls_context);
+err_free_virtual_pointer:
   zwlr_virtual_pointer_v1_destroy(state.virtual_pointer);
   zwlr_virtual_pointer_manager_v1_destroy(state.pointer_manager);
   wl_seat_destroy(state.seat);

@@ -10,6 +10,10 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 
 include(FetchContent)
 set(make_tests OFF CACHE BOOL "Disable tinydtls tests" FORCE)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "Disable tinydtls shared libraries" FORCE)
+# TODO support for ECDHE_ECDSA cipher suites?
+set(DTLS_ECC OFF CACHE BOOL "Disable tinydtls ECDHE_ECDSA cipher suites support" FORCE)
+set(DTLS_PSK ON CACHE BOOL "Enable tinydtls PSK support" FORCE)
 FetchContent_Declare(
         tinydtls
         GIT_REPOSITORY https://github.com/eclipse-tinydtls/tinydtls.git
@@ -45,3 +49,8 @@ add_executable(wl-remote
 )
 target_include_directories(wl-remote PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 target_link_libraries(wl-remote PRIVATE PkgConfig::WAYLAND_CLIENT tinydtls)
+
+add_executable(test-client
+        src/test-client.c
+)
+target_link_libraries(test-client PRIVATE tinydtls)
