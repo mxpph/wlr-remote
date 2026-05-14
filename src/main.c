@@ -23,13 +23,13 @@
 static const unsigned char PSK_ID[] = "user";
 static const unsigned char PSK_KEY[] = "pass"; // TODO user input
 
-static volatile int quit = 0;
+static volatile bool quit = false;
 
 struct client_state {
   struct wl_seat *seat;
   struct zwlr_virtual_pointer_manager_v1 *pointer_manager;
   struct zwlr_virtual_pointer_v1 *virtual_pointer;
-  int net_fd;
+  int sock_fd;
 };
 
 struct mouse_packet {
@@ -39,7 +39,7 @@ struct mouse_packet {
   uint16_t button_state;
 };
 
-static void handle_signal(int signum) { quit = 1; }
+static void handle_signal(int signum) { quit = true; }
 
 static void setup_signals(void) {
   struct sigaction sa = {0};
@@ -67,7 +67,7 @@ static int net_setup_udp_socket(const unsigned short port) {
   return sock;
 }
 
-static int net_setup_epoll(const int wl_fd, const int net_fd) {
+static int net_setup_epoll(const int wl_fd, const int sock_fd) {
   const int epoll_fd = epoll_create1(0);
   if (epoll_fd < 0) {
     perror("epoll_create1");
@@ -80,14 +80,14 @@ static int net_setup_epoll(const int wl_fd, const int net_fd) {
     goto err_close_fds;
   }
   ev.events = EPOLLIN;
-  ev.data.fd = net_fd;
-  if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, net_fd, &ev) < 0) {
+  ev.data.fd = sock_fd;
+  if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, sock_fd, &ev) < 0) {
     goto err_close_fds;
   }
   return epoll_fd;
 err_close_fds:
   perror("epoll_ctl");
-  close(net_fd);
+  close(sock_fd);
   close(epoll_fd);
   return -1;
 }
@@ -121,14 +121,14 @@ static void handle_packet(const struct client_state *state,
   zwlr_virtual_pointer_v1_frame(state->virtual_pointer);
 }
 
-static int net_handle_epoll(dtls_context_t *ctx, const int net_fd) {
+static int net_handle_epoll(dtls_context_t *ctx, const int sock_fd) {
   static unsigned char buffer[DTLS_MAX_BUF];
   session_t session;
   while (true) {
     memset(&session, 0, sizeof(session));
     session.size = sizeof(session.addr);
     const ssize_t bytes_read =
-        recvfrom(net_fd, buffer, sizeof(buffer), MSG_DONTWAIT | MSG_TRUNC,
+        recvfrom(sock_fd, buffer, sizeof(buffer), MSG_DONTWAIT | MSG_TRUNC,
                  &session.addr.sa, &session.size);
     if (bytes_read < 0) {
       if (errno == EAGAIN || errno == EWOULDBLOCK) {
@@ -150,7 +150,7 @@ static int net_handle_epoll(dtls_context_t *ctx, const int net_fd) {
 static int net_handle_send(dtls_context_t *ctx, session_t *session,
                            unsigned char *buf, size_t len) {
   const struct client_state *state = dtls_get_app_data(ctx);
-  const ssize_t sent = sendto(state->net_fd, buf, len, MSG_DONTWAIT,
+  const ssize_t sent = sendto(state->sock_fd, buf, len, MSG_DONTWAIT,
                               &session->addr.sa, session->size);
   if (sent < 0) {
     if (errno == EAGAIN || errno == EWOULDBLOCK || errno == ENOBUFS) {
@@ -287,14 +287,14 @@ int main(const int argc, const char **argv) {
       zwlr_virtual_pointer_manager_v1_create_virtual_pointer(
           state.pointer_manager, state.seat);
 
-  int wl_fd, net_fd, epoll_fd;
+  int wl_fd, sock_fd, epoll_fd;
   if ((wl_fd = wl_display_get_fd(display)) < 0 ||
-      (net_fd = net_setup_udp_socket(port)) < 0 ||
-      (epoll_fd = net_setup_epoll(wl_fd, net_fd)) < 0) {
+      (sock_fd = net_setup_udp_socket(port)) < 0 ||
+      (epoll_fd = net_setup_epoll(wl_fd, sock_fd)) < 0) {
     failure = true;
     goto err_free_virtual_pointer;
   }
-  state.net_fd = net_fd;
+  state.sock_fd = sock_fd;
 
   dtls_init();
   dtls_context_t *dtls_context = dtls_new_context(&state);
@@ -316,14 +316,15 @@ int main(const int argc, const char **argv) {
     for (int i = 0; i < ready; ++i) {
       const int event_fd = events[i].data.fd;
       if ((event_fd == wl_fd && wl_display_dispatch(display) < 0) ||
-          (event_fd == net_fd && net_handle_epoll(dtls_context, net_fd) < 0)) {
+          (event_fd == sock_fd &&
+           net_handle_epoll(dtls_context, sock_fd) < 0)) {
         goto err_free_all;
       }
     }
   }
   // Cleanup
 err_free_all:
-  close(net_fd);
+  close(sock_fd);
   close(epoll_fd);
   dtls_free_context(dtls_context);
 err_free_virtual_pointer:
