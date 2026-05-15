@@ -14,8 +14,11 @@
 #define DELAY 10000 // microseconds
 #define ITERATIONS 50
 
-static const unsigned char PSK_ID[] = "user";
-static const unsigned char PSK_KEY[] = "pass";
+#define PSK_BUFFER_SIZE ((DTLS_PSK_MAX_KEY_LEN) + 2)
+
+static const unsigned char PSK_ID[] = "wlr-remote";
+static char psk_key[PSK_BUFFER_SIZE];
+static size_t psk_key_len;
 
 struct mouse_packet {
   int32_t dx;
@@ -41,6 +44,8 @@ static int net_handle_event(dtls_context_t *ctx, session_t *session,
                             dtls_alert_level_t level, unsigned short code) {
   if (level == 0 && code == DTLS_EVENT_CONNECTED) {
     is_connected = 1;
+  } else {
+    fprintf(stderr, "Received alert level %u with code %u\n", level, code);
   }
   return 0;
 }
@@ -58,11 +63,13 @@ static int net_get_psk_info(dtls_context_t *ctx, const session_t *session,
   }
 
   if (type == DTLS_PSK_KEY) {
-    if (result_length < sizeof(PSK_KEY) - 1) {
+    if (result_length < psk_key_len) {
+      printf("result_length %zu < psk_key_len %zu\n", result_length,
+             psk_key_len);
       return dtls_alert_fatal_create(DTLS_ALERT_INTERNAL_ERROR);
     }
-    memcpy(result, PSK_KEY, sizeof(PSK_KEY) - 1);
-    return sizeof(PSK_KEY) - 1;
+    memcpy(result, psk_key, psk_key_len);
+    return (int)psk_key_len;
   }
 
   return dtls_alert_fatal_create(DTLS_ALERT_INTERNAL_ERROR);
@@ -74,6 +81,14 @@ static dtls_handler_t dtls_callbacks = {.write = net_handle_send,
                                         .get_psk_info = net_get_psk_info};
 
 int main(void) {
+  printf("Enter the password: ");
+  fflush(stdout);
+  if (!fgets(psk_key, sizeof(psk_key), stdin)) {
+    return EXIT_FAILURE;
+  }
+  psk_key_len = strcspn(psk_key, "\n");
+  psk_key[psk_key_len] = '\0';
+
   const int fd = socket(AF_INET, SOCK_DGRAM, 0);
   if (fd < 0) {
     perror("socket");

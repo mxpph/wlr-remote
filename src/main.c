@@ -9,19 +9,19 @@
 #include <string.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
+#include <termios.h>
 #include <unistd.h>
 #include <wayland-client.h>
 
 #include "wlr-virtual-pointer-unstable-v1-protocol.h"
 
-#ifndef WL_POINTER_DEFAULT_PORT
-#define WL_POINTER_DEFAULT_PORT 39076
+#ifndef DEFAULT_PORT
+#define DEFAULT_PORT 39076
 #endif
 
-#define DGRAM_BUF_SIZE 1500
+#define PSK_BUFFER_SIZE ((DTLS_PSK_MAX_KEY_LEN) + 2)
 
-static const unsigned char PSK_ID[] = "user";
-static const unsigned char PSK_KEY[] = "pass"; // TODO user input
+static const unsigned char PSK_ID[] = "wlr-remote";
 
 static volatile bool quit = false;
 
@@ -30,6 +30,8 @@ struct client_state {
   struct zwlr_virtual_pointer_manager_v1 *pointer_manager;
   struct zwlr_virtual_pointer_v1 *virtual_pointer;
   int sock_fd;
+  unsigned char *const psk_key;
+  const size_t psk_key_len;
 };
 
 struct mouse_packet {
@@ -47,6 +49,34 @@ static void setup_signals(void) {
   sa.sa_handler = &handle_signal;
   sigaction(SIGINT, &sa, NULL);
   sigaction(SIGTERM, &sa, NULL);
+}
+
+static size_t setup_password(char *psk_key) {
+  struct termios term;
+  tcgetattr(STDIN_FILENO, &term);
+  term.c_lflag &= ~ECHO;
+
+  printf("Create a password (max %d characters): ", DTLS_PSK_MAX_KEY_LEN);
+  fflush(stdout);
+
+  tcsetattr(STDIN_FILENO, TCSAFLUSH, &term);
+  char *res = fgets(psk_key, PSK_BUFFER_SIZE, stdin);
+  term.c_lflag |= ECHO;
+  tcsetattr(STDIN_FILENO, TCSAFLUSH, &term);
+  putchar('\n'); // ECHO was off, so we need to print a newline ourselves
+
+  if (!res) {
+    fprintf(stderr, "error: Failed to read password from stdin\n");
+    exit(EXIT_FAILURE);
+  }
+
+  const size_t len = strcspn(psk_key, "\n");
+  if (len == PSK_BUFFER_SIZE - 1) {
+    fprintf(stderr, "error: password too long\n");
+    exit(EXIT_FAILURE);
+  }
+  psk_key[len] = '\0';
+  return len;
 }
 
 static int net_setup_udp_socket(const unsigned short port) {
@@ -215,18 +245,20 @@ static int net_get_psk_info(dtls_context_t *ctx, const session_t *session,
                             dtls_credentials_type_t type,
                             const unsigned char *id, size_t id_len,
                             unsigned char *result, size_t result_length) {
-  if (type != DTLS_PSK_KEY) {
+  if (type != DTLS_PSK_KEY) { // don't send a hint
     return 0;
   }
 
-  if (id_len == sizeof(PSK_ID) - 1 && memcmp(id, PSK_ID, id_len) == 0) {
-    if (result_length < sizeof(PSK_KEY) - 1) {
+  if (id_len == sizeof(PSK_ID) - 1 && !memcmp(id, PSK_ID, sizeof(PSK_ID) - 1)) {
+    const struct client_state *state =
+        (struct client_state *)dtls_get_app_data(ctx);
+    if (result_length < state->psk_key_len) {
       return dtls_alert_fatal_create(DTLS_ALERT_INTERNAL_ERROR);
     }
-    memcpy(result, PSK_KEY, sizeof(PSK_KEY) - 1);
-    return sizeof(PSK_KEY) - 1;
+    memcpy(result, state->psk_key, state->psk_key_len);
+    return (int)state->psk_key_len;
   }
-  return dtls_alert_fatal_create(DTLS_ALERT_DECRYPT_ERROR);
+  return dtls_alert_fatal_create(DTLS_ALERT_ILLEGAL_PARAMETER);
 }
 
 static dtls_handler_t dtls_callbacks = {.write = &net_handle_send,
@@ -260,19 +292,23 @@ static const struct wl_registry_listener registry_listener = {
 
 int main(const int argc, const char **argv) {
   bool failure = false;
-  unsigned short port = WL_POINTER_DEFAULT_PORT;
+  unsigned short port = DEFAULT_PORT;
   if (argc > 1) {
     const long input = strtol(argv[1], NULL, 10);
     if (0 < input && input < UINT16_MAX) {
       port = (unsigned short)input;
     } else {
       fprintf(stderr, "warn: Invalid port '%s', using default %u\n", argv[1],
-              WL_POINTER_DEFAULT_PORT);
+              DEFAULT_PORT);
     }
   }
   setup_signals();
 
-  struct client_state state = {0};
+  char psk_key[PSK_BUFFER_SIZE];
+  const size_t psk_key_len = setup_password(psk_key);
+
+  struct client_state state = {.psk_key = (unsigned char *)psk_key,
+                               .psk_key_len = psk_key_len};
   struct wl_display *display = wl_display_connect(NULL);
   struct wl_registry *registry = wl_display_get_registry(display);
   wl_registry_add_listener(registry, &registry_listener, &state);
