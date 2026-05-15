@@ -43,6 +43,12 @@ add_custom_command(
 add_compile_options(-Wall -Wextra -Wno-unused-parameter)
 add_executable(wlr-remote
         src/main.c
+        src/network.c
+        src/network.h
+        src/setup.c
+        src/setup.h
+        src/virtual_pointer.h
+        src/virtual_pointer.c
         ${PROTOCOL_H}
         ${PROTOCOL_C}
 )
