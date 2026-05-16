@@ -22,7 +22,12 @@ int main(const int argc, const char **argv) {
   char psk_key[PSK_BUFFER_SIZE];
   const size_t psk_key_len = setup_password(psk_key);
 
-  struct client_state state = {.psk_key = psk_key, .psk_key_len = psk_key_len};
+  struct client_state state = {
+      .psk_key = psk_key,
+      .psk_key_len = psk_key_len,
+      .sock_v4 = -1,
+      .sock_v6 = -1,
+  };
   struct wl_display *display = wl_display_connect(NULL);
   struct wl_registry *registry = wl_display_get_registry(display);
   wl_registry_add_listener(registry, &vp_registry_listener, &state);
@@ -37,25 +42,29 @@ int main(const int argc, const char **argv) {
       zwlr_virtual_pointer_manager_v1_create_virtual_pointer(
           state.pointer_manager, state.seat);
 
-  int wl_fd, sock_fd, epoll_fd;
+  int wl_fd, epoll_fd;
   if ((wl_fd = wl_display_get_fd(display)) < 0 ||
-      (sock_fd = net_setup_udp_socket(port)) < 0 ||
-      (epoll_fd = net_setup_epoll(wl_fd, sock_fd)) < 0) {
+      (net_setup_udp_sockets(&state, port)) < 0 ||
+      (epoll_fd = net_setup_epoll(&state, wl_fd)) < 0) {
     failure = true;
     goto err_free_virtual_pointer;
   }
-  state.sock_fd = sock_fd;
 
   dtls_init();
   dtls_context_t *dtls_context = dtls_new_context(&state);
+  if (!dtls_context) {
+    fprintf(stderr, "error: Failed to create DTLS context\n");
+    goto err_free_virtual_pointer;
+  }
   dtls_set_handler(dtls_context, &net_dtls_callbacks);
 
   printf("Listening for mouse movements on UDP port %hu...\n", port);
-  struct epoll_event events[2];
+  struct epoll_event events[3];
   while (!quit) {
     wl_display_dispatch_pending(display);
     wl_display_flush(display);
-    const int ready = epoll_wait(epoll_fd, events, 2, -1);
+    const int ready =
+        epoll_wait(epoll_fd, events, sizeof(events) / sizeof(*events), -1);
     if (ready < 0) {
       if (errno == EINTR) {
         continue;
@@ -65,17 +74,25 @@ int main(const int argc, const char **argv) {
     }
     for (int i = 0; i < ready; ++i) {
       const int event_fd = events[i].data.fd;
-      if ((event_fd == wl_fd && wl_display_dispatch(display) < 0) ||
-          (event_fd == sock_fd &&
-           net_handle_epoll(dtls_context, sock_fd) < 0)) {
-        goto err_free_all;
+      if (event_fd == wl_fd) {
+        if (wl_display_dispatch(display) < 0) {
+          goto err_free_all;
+        }
+      } else { // either sock_v4 or sock_v6
+        if (net_handle_epoll(dtls_context, event_fd) < 0) {
+          goto err_free_all;
+        }
       }
     }
   }
   // Cleanup
 err_free_all:
-  close(sock_fd);
-  close(epoll_fd);
+  if (state.sock_v4 != -1) {
+    close(state.sock_v4);
+  }
+  if (state.sock_v6 != -1) {
+    close(state.sock_v6);
+  }
   dtls_free_context(dtls_context);
 err_free_virtual_pointer:
   zwlr_virtual_pointer_v1_destroy(state.virtual_pointer);

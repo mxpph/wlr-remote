@@ -1,6 +1,7 @@
 #include "dtls.h"
 
 #include <arpa/inet.h>
+#include <netdb.h>
 #include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,7 +10,8 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-#define SERVER_PORT 39076
+#define SERVER_PORT_STR "39076"
+// #define SERVER_IP "::1"
 #define SERVER_IP "127.0.0.1"
 
 #define DELAY 10000 // microseconds
@@ -90,24 +92,28 @@ int main(void) {
   psk_key_len = strcspn(psk_key, "\n");
   psk_key[psk_key_len] = '\0';
 
-  const int fd = socket(AF_INET, SOCK_DGRAM, 0);
-  if (fd < 0) {
-    perror("socket");
+  struct addrinfo hints, *head;
+  memset(&hints, 0, sizeof(hints));
+  hints.ai_family = AF_UNSPEC;
+  hints.ai_socktype = SOCK_DGRAM;
+  hints.ai_protocol = IPPROTO_UDP;
+  int gai_error = getaddrinfo(SERVER_IP, SERVER_PORT_STR, &hints, &head);
+  if (gai_error != 0) {
+    fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(gai_error));
     return EXIT_FAILURE;
   }
 
-  struct sockaddr_in srv_addr = {0};
-  srv_addr.sin_family = AF_INET;
-  srv_addr.sin_port = htons(SERVER_PORT);
-  if (inet_pton(AF_INET, SERVER_IP, &srv_addr.sin_addr) <= 0) {
-    perror("inet_pton");
-    close(fd);
+  const int fd = socket(head->ai_family, head->ai_socktype, head->ai_protocol);
+  if (fd < 0) {
+    perror("socket");
+    freeaddrinfo(head);
     return EXIT_FAILURE;
   }
 
   session_t session = {0};
-  session.size = sizeof(srv_addr);
-  memcpy(&session.addr.sa, &srv_addr, sizeof(srv_addr));
+  session.size = head->ai_addrlen;
+  memcpy(&session.addr.sa, head->ai_addr, head->ai_addrlen);
+  freeaddrinfo(head);
 
   dtls_init();
   dtls_context_t *ctx = dtls_new_context((void *)&fd);
@@ -123,7 +129,7 @@ int main(void) {
     goto cleanup;
   }
 
-  printf("Handshaking with %s:%d...\n", SERVER_IP, SERVER_PORT);
+  printf("Handshaking with %s:%s...\n", SERVER_IP, SERVER_PORT_STR);
 
   while (!is_connected) {
     fd_set rfds;

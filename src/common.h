@@ -12,7 +12,8 @@ struct client_state {
   struct wl_seat *seat;
   struct zwlr_virtual_pointer_manager_v1 *pointer_manager;
   struct zwlr_virtual_pointer_v1 *virtual_pointer;
-  int sock_fd;
+  int sock_v4;
+  int sock_v6;
   char *const psk_key;
   const size_t psk_key_len;
 };
