@@ -87,13 +87,13 @@ int main(const int argc, const char **argv) {
   }
   // Cleanup
 err_free_all:
+  dtls_free_context(dtls_context);
   if (state.sock_v4 != -1) {
     close(state.sock_v4);
   }
   if (state.sock_v6 != -1) {
     close(state.sock_v6);
   }
-  dtls_free_context(dtls_context);
 err_free_virtual_pointer:
   zwlr_virtual_pointer_v1_destroy(state.virtual_pointer);
   zwlr_virtual_pointer_manager_v1_destroy(state.pointer_manager);
