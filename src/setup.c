@@ -9,9 +9,9 @@
 #include <termios.h>
 #include <unistd.h>
 
-volatile bool quit = false;
+volatile sig_atomic_t quit = 0;
 
-static void handle_signal(int signum) { quit = true; }
+static void handle_signal(int signum) { quit = 1; }
 
 void setup_signals(void) {
   struct sigaction sa = {0};

@@ -2,6 +2,7 @@
 #define WLR_REMOTE_SETUP_H
 
 #include <crypto.h>
+#include <signal.h>
 #include <stdbool.h>
 #include <stddef.h>
 
@@ -15,6 +16,6 @@ void setup_signals(void);
 size_t setup_password(char *psk_key);
 unsigned short setup_parse_port(int argc, const char **argv);
 
-extern volatile bool quit;
+extern volatile sig_atomic_t quit;
 
 #endif // WLR_REMOTE_SETUP_H
