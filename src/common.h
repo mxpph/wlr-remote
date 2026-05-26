@@ -1,6 +1,8 @@
 #ifndef WLR_REMOTE_COMMON_H
 #define WLR_REMOTE_COMMON_H
 
+#include "network.h"
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -12,8 +14,7 @@ struct client_state {
   struct wl_seat *seat;
   struct zwlr_virtual_pointer_manager_v1 *pointer_manager;
   struct zwlr_virtual_pointer_v1 *virtual_pointer;
-  int sock_v4;
-  int sock_v6;
+  struct sockets socks;
   char *const psk_key;
   const size_t psk_key_len;
 };

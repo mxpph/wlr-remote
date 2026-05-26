@@ -15,10 +15,9 @@
 #include <sys/epoll.h>
 #include <unistd.h>
 
-static const unsigned char PSK_ID[] = "wlr-remote";
+#define PSK_ID "wlr-remote"
 
-int net_setup_udp_sockets(struct client_state *state,
-                          const unsigned short port) {
+int net_setup_udp_sockets(struct sockets *socks, const unsigned short port) {
   const struct addrinfo hints = {
       .ai_family = AF_UNSPEC,
       .ai_flags = AI_PASSIVE,
@@ -35,8 +34,8 @@ int net_setup_udp_sockets(struct client_state *state,
     return -1;
   }
 
-  for (struct addrinfo *info = head;
-       info != NULL && (state->sock_v4 == -1 || state->sock_v6 == -1);
+  int count = 0;
+  for (struct addrinfo *info = head; info != NULL && count < 2;
        info = info->ai_next) {
     const int sock =
         socket(info->ai_family, info->ai_socktype, info->ai_protocol);
@@ -49,6 +48,7 @@ int net_setup_udp_sockets(struct client_state *state,
             0) {
       perror("setsockopt IPV6_V6ONLY");
       close(sock);
+      continue;
     }
 
     if (bind(sock, info->ai_addr, info->ai_addrlen) < 0) {
@@ -56,24 +56,28 @@ int net_setup_udp_sockets(struct client_state *state,
       close(sock);
       continue;
     }
-    if (info->ai_family == AF_INET && state->sock_v4 == -1) {
-      state->sock_v4 = sock;
-    } else if (info->ai_family == AF_INET6 && state->sock_v6 == -1) {
-      state->sock_v6 = sock;
+    if (info->ai_family == AF_INET && socks->v4 == -1) {
+      socks->v4 = sock;
+      ++count;
+    } else if (info->ai_family == AF_INET6 && socks->v6 == -1) {
+      socks->v6 = sock;
+      ++count;
     } else {
       close(sock);
     }
   }
   freeaddrinfo(head);
 
-  if (state->sock_v4 == -1 && state->sock_v6 == -1) {
-    fprintf(stderr, "error: Failed to bind any sockets\n");
+  if (count == 0) {
+    fprintf(stderr, "error: Failed to bind any sockets for port %s\n",
+            port_str);
     return -1;
   }
-  return 0;
+  return count;
 }
 
 int net_setup_epoll(const struct client_state *state, const int wl_fd) {
+  const struct sockets *socks = &state->socks;
   const int epoll_fd = epoll_create1(0);
   if (epoll_fd < 0) {
     perror("epoll_create1");
@@ -85,26 +89,26 @@ int net_setup_epoll(const struct client_state *state, const int wl_fd) {
   if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, wl_fd, &ev) < 0) {
     goto err_close_fds;
   }
-  if (state->sock_v4 != -1) {
-    ev.data.fd = state->sock_v4;
-    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, state->sock_v4, &ev) < 0) {
+  if (socks->v4 != -1) {
+    ev.data.fd = socks->v4;
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, socks->v4, &ev) < 0) {
       goto err_close_fds;
     }
   }
-  if (state->sock_v6 != -1) {
-    ev.data.fd = state->sock_v6;
-    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, state->sock_v6, &ev) < 0) {
+  if (socks->v6 != -1) {
+    ev.data.fd = socks->v6;
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, socks->v6, &ev) < 0) {
       goto err_close_fds;
     }
   }
   return epoll_fd;
 err_close_fds:
   perror("epoll_ctl");
-  if (state->sock_v4 != -1) {
-    close(state->sock_v4);
+  if (socks->v4 != -1) {
+    close(socks->v4);
   }
-  if (state->sock_v6 != -1) {
-    close(state->sock_v6);
+  if (socks->v6 != -1) {
+    close(socks->v6);
   }
   close(epoll_fd);
   return -1;
@@ -141,9 +145,9 @@ static int net_handle_send(dtls_context_t *ctx, session_t *session,
   const struct client_state *state = dtls_get_app_data(ctx);
   int sock;
   if (session->addr.sa.sa_family == AF_INET) {
-    sock = state->sock_v4;
+    sock = state->socks.v4;
   } else if (session->addr.sa.sa_family == AF_INET6) {
-    sock = state->sock_v6;
+    sock = state->socks.v6;
   } else {
     fprintf(stderr, "error: unrecognized address family for outbound packet\n");
     return -1;

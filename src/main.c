@@ -1,3 +1,4 @@
+#include "advertise.h"
 #include "common.h"
 #include "network.h"
 #include "setup.h"
@@ -25,8 +26,7 @@ int main(const int argc, const char **argv) {
   struct client_state state = {
       .psk_key = psk_key,
       .psk_key_len = psk_key_len,
-      .sock_v4 = -1,
-      .sock_v6 = -1,
+      .socks = {.v4 = -1, .v6 = -1},
   };
   struct wl_display *display = wl_display_connect(NULL);
   struct wl_registry *registry = wl_display_get_registry(display);
@@ -44,7 +44,7 @@ int main(const int argc, const char **argv) {
 
   int wl_fd, epoll_fd;
   if ((wl_fd = wl_display_get_fd(display)) < 0 ||
-      (net_setup_udp_sockets(&state, port)) < 0 ||
+      (!net_setup_udp_sockets(&state.socks, port)) ||
       (epoll_fd = net_setup_epoll(&state, wl_fd)) < 0) {
     failure = true;
     goto err_free_virtual_pointer;
@@ -58,8 +58,17 @@ int main(const int argc, const char **argv) {
   }
   dtls_set_handler(dtls_context, &net_dtls_callbacks);
 
+  advertise_service_t *service = advertise_create_service(port);
+  if (service != NULL) {
+    if (!advertise_setup_epoll(service, epoll_fd)) {
+      goto err_free_all;
+    }
+    advertise_announce_service(service);
+    printf("Advertising service via mDNS\n");
+  }
+
   printf("Listening for mouse movements on UDP port %hu...\n", port);
-  struct epoll_event events[3];
+  struct epoll_event events[5];
   while (!quit) {
     wl_display_dispatch_pending(display);
     wl_display_flush(display);
@@ -78,21 +87,27 @@ int main(const int argc, const char **argv) {
         if (wl_display_dispatch(display) < 0) {
           goto err_free_all;
         }
-      } else { // either sock_v4 or sock_v6
+      } else if (event_fd == state.socks.v4 || event_fd == state.socks.v6) {
         if (net_handle_epoll(dtls_context, event_fd) < 0) {
           goto err_free_all;
         }
+      } else if (service != NULL) { // advertise service fd
+        advertise_respond_request(service, event_fd);
       }
     }
   }
   // Cleanup
 err_free_all:
-  dtls_free_context(dtls_context);
-  if (state.sock_v4 != -1) {
-    close(state.sock_v4);
+  if (service != NULL) {
+    advertise_announce_goodbye(service);
+    advertise_destroy_service(service);
   }
-  if (state.sock_v6 != -1) {
-    close(state.sock_v6);
+  dtls_free_context(dtls_context);
+  if (state.socks.v4 != -1) {
+    close(state.socks.v4);
+  }
+  if (state.socks.v6 != -1) {
+    close(state.socks.v6);
   }
 err_free_virtual_pointer:
   zwlr_virtual_pointer_v1_destroy(state.virtual_pointer);

@@ -3,9 +3,16 @@
 
 #include "dtls.h"
 
+#include <stdbool.h>
+
 struct client_state;
 
-int net_setup_udp_sockets(struct client_state *state, unsigned short port);
+struct sockets {
+  int v4;
+  int v6;
+};
+
+int net_setup_udp_sockets(struct sockets *socks, unsigned short port);
 int net_setup_epoll(const struct client_state *state, int wl_fd);
 int net_handle_epoll(dtls_context_t *ctx, int sock_fd);
 

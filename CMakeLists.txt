@@ -24,7 +24,7 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(WAYLAND_CLIENT REQUIRED IMPORTED_TARGET wayland-client)
 find_program(WAYLAND_SCANNER wayland-scanner REQUIRED)
 set(PROTOCOL_NAME "wlr-virtual-pointer-unstable-v1")
-set(PROTOCOL_XML "${CMAKE_CURRENT_SOURCE_DIR}/protocols/${PROTOCOL_NAME}.xml")
+set(PROTOCOL_XML "${CMAKE_CURRENT_SOURCE_DIR}/lib/${PROTOCOL_NAME}.xml")
 set(PROTOCOL_H "${CMAKE_CURRENT_BINARY_DIR}/${PROTOCOL_NAME}-protocol.h")
 set(PROTOCOL_C "${CMAKE_CURRENT_BINARY_DIR}/${PROTOCOL_NAME}-protocol.c")
 add_custom_command(
@@ -49,10 +49,15 @@ add_executable(wlr-remote
         src/setup.h
         src/virtual_pointer.h
         src/virtual_pointer.c
+        src/advertise.h
+        src/advertise.c
         ${PROTOCOL_H}
         ${PROTOCOL_C}
 )
-target_include_directories(wlr-remote PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+target_include_directories(wlr-remote PRIVATE 
+        ${CMAKE_CURRENT_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/lib
+)
 target_link_libraries(wlr-remote PRIVATE PkgConfig::WAYLAND_CLIENT tinydtls)
 
 add_executable(test-client
