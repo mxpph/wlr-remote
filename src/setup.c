@@ -42,7 +42,11 @@ size_t setup_password(char *psk_key) {
 
   const size_t len = strcspn(psk_key, "\n");
   if (len == PSK_BUFFER_SIZE - 1) {
-    fprintf(stderr, "error: password too long\n");
+    fprintf(stderr, "error: Password too long\n");
+    exit(EXIT_FAILURE);
+  }
+  if (len == 0) {
+    fprintf(stderr, "error: Password cannot be empty\n");
     exit(EXIT_FAILURE);
   }
   psk_key[len] = '\0';
