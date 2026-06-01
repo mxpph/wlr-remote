@@ -28,5 +28,12 @@ pass a port number to use, e.g. `./wlr-remote 12345`. The default port is 37096.
 There is a `test-client` executable to check that things are working.
 
 To actually connect to the client from your phone, see the [Android client
-repository](https://github.com/mxpph/wlr-remote-control). (I don't own any Apple
-devices, so I can't make an iOS client, sorry).
+repository](https://github.com/mxpph/wlr-remote-control). I don't own any Apple
+devices, so I can't make an iOS client, sorry.
+
+## TODOs
+
+- Scrolling support
+- `libevdev` backend for systems that dont support the virtual pointer protocol
+- Keyboard input (either virtual keyboard protocol or `libevdev`)
+- Multi-touch support (requires `libevdev` backend)
