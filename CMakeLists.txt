@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.10)
 
 project(wlr-remote
-        VERSION 0.1.0
+        VERSION 1.0.0
         LANGUAGES C
 )
 
@@ -17,6 +17,7 @@ FetchContent_Declare(
         tinydtls
         GIT_REPOSITORY https://github.com/eclipse-tinydtls/tinydtls.git
         GIT_TAG main
+        EXCLUDE_FROM_ALL
 )
 FetchContent_MakeAvailable(tinydtls)
 
@@ -64,3 +65,18 @@ add_executable(test-client
         src/test-client.c
 )
 target_link_libraries(test-client PRIVATE tinydtls)
+
+include(GNUInstallDirs)
+install(TARGETS wlr-remote
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE"
+              "${CMAKE_CURRENT_SOURCE_DIR}/NOTICES.md"
+        DESTINATION ${CMAKE_INSTALL_DATADIR})
+
+set(CPACK_PACKAGE_NAME "${PROJECT_NAME}")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_GENERATOR "TGZ")
+set(CPACK_PACKAGE_FILE_NAME "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION}-${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}")
+
+include(CPack)

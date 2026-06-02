@@ -1,0 +1,35 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y cmake libwayland-dev wayland-protocols pkg-config
+
+      - name: Configure CMake
+        run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build ${{github.workspace}}/build --config Release
+
+      - name: Package
+        working-directory: ${{github.workspace}}/build
+        run: cpack
+
+      - name: Release
+        uses: softprops/action-gh-release@v3
+        with:
+          working_directory: ${{github.workspace}}/build
+          files: |
+            *.tar.gz
