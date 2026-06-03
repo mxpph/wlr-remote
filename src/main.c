@@ -16,7 +16,7 @@
 #include <wayland-client.h>
 
 int main(const int argc, const char **argv) {
-  bool failure = false;
+  bool success = false;
   const unsigned short port = setup_parse_port(argc, argv);
   setup_signals();
 
@@ -35,7 +35,6 @@ int main(const int argc, const char **argv) {
   if (!state.seat || !state.pointer_manager) {
     fprintf(stderr,
             "error: Compositor doesn't support the required protocol\n");
-    failure = true;
     goto err_free_registry;
   }
   state.virtual_pointer =
@@ -46,7 +45,6 @@ int main(const int argc, const char **argv) {
   if ((wl_fd = wl_display_get_fd(display)) < 0 ||
       (!net_setup_udp_sockets(&state.socks, port)) ||
       (epoll_fd = net_setup_epoll(&state, wl_fd)) < 0) {
-    failure = true;
     goto err_free_virtual_pointer;
   }
 
@@ -96,6 +94,7 @@ int main(const int argc, const char **argv) {
       }
     }
   }
+  success = true;
   // Cleanup
 err_free_all:
   if (service != NULL) {
@@ -116,6 +115,5 @@ err_free_virtual_pointer:
 err_free_registry:
   wl_registry_destroy(registry);
   wl_display_disconnect(display);
-  printf("Shutting down.\n");
-  return failure ? EXIT_FAILURE : EXIT_SUCCESS;
+  return success ? EXIT_SUCCESS : EXIT_FAILURE;
 }
