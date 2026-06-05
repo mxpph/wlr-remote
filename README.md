@@ -7,6 +7,8 @@ For when you're too lazy to get up and move your mouse.
 
 Find the [Android app](https://github.com/mxpph/wlr-remote-control) here.
 
+[![Demo video](https://github.com/user-attachments/assets/95add94a-ad42-40bd-aaf8-5ab7ff95e5d5)](https://www.youtube.com/watch?v=t-NXUtKe0Us)
+
 ## How to run
 
 wlr-remote works on any Wayland compositor implementing the
@@ -37,3 +39,5 @@ devices, so I can't make an iOS client, sorry.
 - `libevdev` backend for systems that dont support the virtual pointer protocol
 - Keyboard input (either virtual keyboard protocol or `libevdev`)
 - Multi-touch support (requires `libevdev` backend)
+
+Read more about the development [here](https://xgilli.me/projects/linux-remote-mouse).
