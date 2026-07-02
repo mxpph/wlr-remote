@@ -132,6 +132,7 @@ int net_handle_epoll(dtls_context_t *ctx, const int sock_fd) {
     }
     if (bytes_read > DTLS_MAX_BUF) {
       fprintf(stderr, "warn: Packet of size %zd exceeds buffer\n", bytes_read);
+      continue;
     }
     const int res = dtls_handle_message(ctx, &session, buffer, (int)bytes_read);
     if (res < 0) {
@@ -185,8 +186,14 @@ static int net_handle_receive(dtls_context_t *ctx, session_t *session,
 static int net_handle_event(dtls_context_t *ctx, session_t *session,
                             dtls_alert_level_t level, unsigned short code) {
   char client_addr[INET6_ADDRSTRLEN];
-  if (!inet_ntop(session->addr.sa.sa_family, &session->addr.sin.sin_addr,
-                 client_addr, sizeof(client_addr))) {
+  const void *sockaddr;
+  if (session->addr.sa.sa_family == AF_INET) {
+    sockaddr = &session->addr.sin.sin_addr;
+  } else {
+    sockaddr = &session->addr.sin6.sin6_addr;
+  }
+  if (!inet_ntop(session->addr.sa.sa_family, sockaddr, client_addr,
+                 sizeof(client_addr))) {
     fprintf(stderr, "warn: Failed to convert client address to string\n");
     perror("inet_ntop");
   }

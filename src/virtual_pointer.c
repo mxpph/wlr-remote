@@ -33,7 +33,9 @@ void vp_handle_packet(const struct client_state *state,
   }
   const wl_fixed_t dx = wl_fixed_from_int(packet->dx);
   const wl_fixed_t dy = wl_fixed_from_int(packet->dy);
-  zwlr_virtual_pointer_v1_motion(state->virtual_pointer, 0, dx, dy);
+  if (dx != 0 || dy != 0) {
+    zwlr_virtual_pointer_v1_motion(state->virtual_pointer, 0, dx, dy);
+  }
   zwlr_virtual_pointer_v1_frame(state->virtual_pointer);
 }
 

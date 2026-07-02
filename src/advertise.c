@@ -25,12 +25,12 @@ static bool create_mdns_sockets(struct sockets *socks,
   if (found & BIT_IPV4_FOUND) {
     addrs->v4.sin_port = mdns_port;
     socks->v4 = mdns_socket_open_ipv4(&addrs->v4);
-    success = socks->v4 != -1;
+    success |= socks->v4 != -1;
   }
   if (found & BIT_IPV6_FOUND) {
     addrs->v6.sin6_port = mdns_port;
     socks->v6 = mdns_socket_open_ipv6(&addrs->v6);
-    success = socks->v6 != -1;
+    success |= socks->v6 != -1;
   };
   return success;
 }
@@ -275,10 +275,10 @@ static void advertise_announce(advertise_service_t *service,
 
 advertise_service_t *advertise_create_service(unsigned short port) {
   advertise_service_t *service = malloc(sizeof(*service));
-  memset(service, 0, sizeof(*service));
   if (!service) {
     return NULL;
   }
+  memset(service, 0, sizeof(*service));
   service->port = port;
   service->socks.v4 = service->socks.v6 = -1;
   int found = get_interfaces(&service->addrs);

@@ -29,7 +29,10 @@ size_t setup_password(char *psk_key) {
   printf("Create a password (max %d characters): ", DTLS_PSK_MAX_KEY_LEN);
   fflush(stdout);
 
-  tcsetattr(STDIN_FILENO, TCSAFLUSH, &term);
+  if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &term) < 0) {
+    fprintf(stderr,
+            "warn: Couldn't disable ECHO, password will be printed to screen");
+  };
   char *res = fgets(psk_key, PSK_BUFFER_SIZE, stdin);
   term.c_lflag |= ECHO;
   tcsetattr(STDIN_FILENO, TCSAFLUSH, &term);
@@ -58,7 +61,7 @@ unsigned short setup_parse_port(const int argc, const char **argv) {
     return DEFAULT_PORT;
   }
   const long input = strtol(argv[1], NULL, 10);
-  if (0 < input && input < UINT16_MAX) {
+  if (0 < input && input <= UINT16_MAX) {
     return (unsigned short)input;
   }
   fprintf(stderr, "warn: Invalid port '%s', using default %u\n", argv[1],

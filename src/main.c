@@ -15,6 +15,8 @@
 #include <unistd.h>
 #include <wayland-client.h>
 
+#define MAX_EVENTS 5
+
 int main(const int argc, const char **argv) {
   bool success = false;
   const unsigned short port = setup_parse_port(argc, argv);
@@ -29,6 +31,10 @@ int main(const int argc, const char **argv) {
       .socks = {.v4 = -1, .v6 = -1},
   };
   struct wl_display *display = wl_display_connect(NULL);
+  if (!display) {
+    fprintf(stderr, "error: Cannot open display");
+    exit(EXIT_FAILURE);
+  }
   struct wl_registry *registry = wl_display_get_registry(display);
   wl_registry_add_listener(registry, &vp_registry_listener, &state);
   wl_display_roundtrip(display);
@@ -43,7 +49,7 @@ int main(const int argc, const char **argv) {
 
   int wl_fd, epoll_fd;
   if ((wl_fd = wl_display_get_fd(display)) < 0 ||
-      (!net_setup_udp_sockets(&state.socks, port)) ||
+      net_setup_udp_sockets(&state.socks, port) < 0 ||
       (epoll_fd = net_setup_epoll(&state, wl_fd)) < 0) {
     goto err_free_virtual_pointer;
   }
@@ -66,7 +72,7 @@ int main(const int argc, const char **argv) {
   }
 
   printf("Listening for mouse movements on UDP port %hu...\n", port);
-  struct epoll_event events[5];
+  struct epoll_event events[MAX_EVENTS];
   while (!quit) {
     wl_display_dispatch_pending(display);
     wl_display_flush(display);

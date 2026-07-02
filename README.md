@@ -26,7 +26,7 @@ cmake --build build -j$(nproc)
 ## Usage
 
 Run the `wlr-remote` executable, and specify a password. Optionally, you may
-pass a port number to use, e.g. `./wlr-remote 12345`. The default port is 37096.
+pass a port number to use, e.g. `./wlr-remote 12345`. The default port is 39076.
 There is a `test-client` executable to check that things are working.
 
 To actually connect to the client from your phone, see the [Android client
